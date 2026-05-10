@@ -19,6 +19,7 @@ graphite.svg
 fragment_state.npz
 dataset_handwritten/
 dataset_handwritten*.parquet
+longhand-synthetic*.parquet
 preview_check.png
 
 # Redundant copy at repo root — the canonical weights live in longhand_mlx/data/

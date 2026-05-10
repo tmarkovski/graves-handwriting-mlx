@@ -1,12 +1,20 @@
 """Render messages from the `Roman1111111/claude-sonnet-4.6-100000X-filtered`
 HuggingFace dataset as handwriting and write to a parquet dataset.
 
-Schema matches `graphite/scripts/convert_jsonl_to_parquet.py`:
+Schema is the one from `graphite/scripts/convert_jsonl_to_parquet.py`
+extended with an `author` column identifying which of the 13 bundled
+handwriting styles produced the row:
 
     strokes : list<list<struct{points: list<struct{x: float32, y: float32}>}>>
     text    : string
-    preview : struct{bytes: binary, path: string}    -> cast to HF Image
-    file    : string                                  -> sha256(text)
+    preview : struct{bytes: binary, path: string}    -- raw PNG bytes
+    file    : string                                  -- sha256(text)
+    author  : int32                                   -- style id 0..12
+
+The preview column is plain PNG bytes; consumers wanting HF auto-thumbnails
+can do `cast_column("preview", datasets.Image())` after loading. We don't
+do it here so the script stays streaming-only and never holds the full
+dataset in memory.
 
 **One row per line.** Each user/assistant message is word-wrapped at
 75 characters and every wrapped line is emitted as its own parquet row.
@@ -33,7 +41,10 @@ import mlx.core as mx
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datasets import Dataset, Image as HFImage, load_dataset
+import json
+from dataclasses import asdict
+
+from datasets import DatasetInfo, Features, Image as HFImage, Sequence, Value, load_dataset
 from PIL import Image, ImageDraw
 from tqdm import tqdm
 
@@ -49,10 +60,8 @@ LINE_LIMIT = 75
 ROLES_TO_RENDER = {"user", "assistant"}
 VALID_CHARS = set(alphabet)
 
-SCALE = 1.5
-LINE_HEIGHT = 60
-VIEW_WIDTH = 1000
 PNG_STROKE_WIDTH = 2
+PNG_PADDING = 8
 STEPS_PER_CHAR = 40
 EVAL_EVERY = 8
 
@@ -64,7 +73,32 @@ SCHEMA = pa.schema(
         ("text", pa.string()),
         ("preview", pa.struct([("bytes", pa.binary()), ("path", pa.string())])),
         ("file", pa.string()),
+        ("author", pa.int32()),
     ]
+)
+
+# HF datasets stores feature metadata inside the parquet schema under the
+# "huggingface" key. Embedding it at writer creation (rather than via a
+# post-hoc Dataset.cast_column round-trip) lets the script stay streaming —
+# we never need to load the file back into memory just to mark `preview` as
+# an Image column.
+HF_FEATURES = Features(
+    {
+        "strokes": Sequence(
+            Sequence({"points": Sequence({"x": Value("float32"), "y": Value("float32")})})
+        ),
+        "text": Value("string"),
+        "preview": HFImage(),
+        "file": Value("string"),
+        "author": Value("int32"),
+    }
+)
+SCHEMA = SCHEMA.with_metadata(
+    {
+        "huggingface": json.dumps(
+            {"info": {"features": asdict(DatasetInfo(features=HF_FEATURES))["features"]}}
+        )
+    }
 )
 
 
@@ -237,21 +271,18 @@ def generate_batch(
     return results
 
 
-def line_to_absolute_coords(strokes_offsets: np.ndarray, y_offset: float) -> np.ndarray | None:
-    """Scale, cumsum to absolute coords, denoise, deslant, and place the
-    line at the requested vertical position. Returns `[N, 3]` `(x, y, eos)`."""
+def line_to_absolute_coords(strokes_offsets: np.ndarray) -> np.ndarray | None:
+    """Cumsum offsets to absolute coords, denoise, deslant, flip Y for screen
+    convention, and shift so the very first point sits at (0, 0). Returns
+    `[N, 3]` `(x, y, eos)` — no centering, no fixed canvas."""
     if len(strokes_offsets) == 0:
         return None
-    scaled = strokes_offsets.astype(np.float64).copy()
-    scaled[:, :2] *= SCALE
-    coords = offsets_to_coords(scaled)
+    coords = offsets_to_coords(strokes_offsets.astype(np.float64))
     coords = _denoise(coords)
     coords[:, :2] = _align(coords[:, :2])
     coords[:, 1] *= -1
-    coords[:, 0] -= coords[:, 0].min()
-    coords[:, 1] -= coords[:, 1].min()
-    coords[:, 0] += (VIEW_WIDTH - coords[:, 0].max()) / 2
-    coords[:, 1] += y_offset
+    coords[:, 0] -= coords[0, 0]
+    coords[:, 1] -= coords[0, 1]
     return coords
 
 
@@ -285,12 +316,28 @@ def coords_and_word_assignment_to_groups(
     return groups
 
 
-def render_preview_png(word_groups: list[list[dict]], canvas_height: int) -> bytes:
-    image = Image.new("RGB", (VIEW_WIDTH, canvas_height), "white")
+def render_preview_png(word_groups: list[list[dict]]) -> bytes:
+    """Render a tight-bbox PNG of the line, just big enough to fit the strokes
+    plus a small padding."""
+    all_x: list[float] = []
+    all_y: list[float] = []
+    for group in word_groups:
+        for stroke in group:
+            for point in stroke["points"]:
+                all_x.append(point["x"])
+                all_y.append(point["y"])
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+    width = max(int(max_x - min_x + 2 * PNG_PADDING), 1)
+    height = max(int(max_y - min_y + 2 * PNG_PADDING), 1)
+    offset_x = -min_x + PNG_PADDING
+    offset_y = -min_y + PNG_PADDING
+
+    image = Image.new("RGB", (width, height), "white")
     canvas = ImageDraw.Draw(image)
     for group in word_groups:
         for stroke in group:
-            points = [(point["x"], point["y"]) for point in stroke["points"]]
+            points = [(point["x"] + offset_x, point["y"] + offset_y) for point in stroke["points"]]
             if len(points) >= 2:
                 canvas.line(points, fill="black", width=PNG_STROKE_WIDTH)
             elif len(points) == 1:
@@ -319,7 +366,7 @@ def line_strokes_to_word_groups(
     word_ids = word_id_for_each_char(line)
     word_assignment = word_ids[attended_in_line]
 
-    coords = line_to_absolute_coords(strokes, y_offset=LINE_HEIGHT - 3 * LINE_HEIGHT / 4)
+    coords = line_to_absolute_coords(strokes)
     if coords is None or len(coords) != len(word_assignment):
         return None
     word_groups = coords_and_word_assignment_to_groups(coords, word_assignment)
@@ -333,25 +380,29 @@ def flush_batch(
     batch_seed: int,
     writer: pq.ParquetWriter,
 ) -> tuple[int, int]:
+    """Generate a batch on the GPU, build the rows, and write them as a single
+    parquet row group. Memory peaks at one batch's worth of strokes + previews
+    and drops back down on return."""
     if not pending:
         return 0, 0
     results = generate_batch(hand, pending, bias=bias, batch_seed=batch_seed)
-    rendered = 0
+
+    columns: dict[str, list] = {"strokes": [], "text": [], "preview": [], "file": [], "author": []}
     skipped_empty = 0
     for request, (strokes, attended, primer_offset) in zip(pending, results):
         word_groups = line_strokes_to_word_groups(request.line, strokes, attended, primer_offset)
         if word_groups is None:
             skipped_empty += 1
             continue
-        preview_bytes = render_preview_png(word_groups, canvas_height=LINE_HEIGHT * 2)
-        row = {
-            "strokes": [word_groups],
-            "text": [request.line],
-            "preview": [{"bytes": preview_bytes, "path": None}],
-            "file": [hashlib.sha256(request.line.encode()).hexdigest()],
-        }
-        writer.write_table(pa.table(row, schema=SCHEMA))
-        rendered += 1
+        columns["strokes"].append(word_groups)
+        columns["text"].append(request.line)
+        columns["preview"].append({"bytes": render_preview_png(word_groups), "path": None})
+        columns["file"].append(hashlib.sha256(request.line.encode()).hexdigest())
+        columns["author"].append(request.style)
+
+    rendered = len(columns["text"])
+    if rendered:
+        writer.write_table(pa.table(columns, schema=SCHEMA))
     return rendered, skipped_empty
 
 
@@ -439,10 +490,6 @@ def main() -> None:
 
     progress.close()
     writer.close()
-
-    converted = Dataset.from_parquet(str(args.output))
-    converted = converted.cast_column("preview", HFImage())
-    converted.to_parquet(args.output)
 
     print(
         f"\nwrote {args.output} ({rendered} rows); skipped {skipped_role} non-user/assistant, "
