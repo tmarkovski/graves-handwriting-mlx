@@ -135,11 +135,17 @@ for style_id in [3, 7, 12]:
 
 ### Allowed characters
 
-The vocabulary is 73 characters: ASCII letters (note: no `Q`, `X`, `Z`
-uppercase), digits, and a small punctuation set
-(`` ' " # ( ) , - . : ; ? ! ``). Any other character — emoji, accented
+The vocabulary is 73 characters: lowercase a–z, uppercase letters
+**except `Q`, `X`, and `Z`**, digits 0–9, and a small punctuation set
+(`` ' " # ( ) , - . : ; ! ? ``). Any other character — emoji, accented
 letters, tabs — will raise `ValueError`. Each line is capped at 75
 characters.
+
+Why no `Q`, `X`, `Z` capitals? They're nearly absent from the IAM On-Line
+Handwriting Database the model was trained on, and the vocabulary is baked
+into the trained weights (the alphabet size is wired into the LSTM input
+dimensions). Adding them would require retraining on a corpus that contains
+them.
 
 ## Streaming generation
 
