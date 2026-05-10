@@ -398,6 +398,41 @@ wheels = [
 ]
 
 [[package]]
+name = "graves-handwriting-mlx"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "datasets" },
+    { name = "mlx" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pyarrow" },
+    { name = "scipy" },
+    { name = "svgwrite" },
+    { name = "tqdm" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "tensorflow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasets", specifier = ">=4.8.5" },
+    { name = "mlx", specifier = ">=0.31.2" },
+    { name = "numpy", specifier = ">=2.4.4" },
+    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pyarrow", specifier = ">=24.0.0" },
+    { name = "scipy", specifier = ">=1.17.1" },
+    { name = "svgwrite", specifier = ">=1.4.3" },
+    { name = "tqdm", specifier = ">=4.67.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "tensorflow", specifier = ">=2.21.0" }]
+
+[[package]]
 name = "grpcio"
 version = "1.80.0"
 source = { registry = "https://pypi.org/simple" }
@@ -577,41 +612,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/2d/3f480b1e1d31eb3d6de5e3ef641954e5c67430d5ac93b7fa7e07589576c7/libclang-18.1.1-py2.py3-none-win_amd64.whl", hash = "sha256:4dd2d3b82fab35e2bf9ca717d7b63ac990a3519c7e312f19fa8e86dcc712f7fb", size = 26415083, upload-time = "2024-03-17T16:42:21.703Z" },
     { url = "https://files.pythonhosted.org/packages/71/cf/e01dc4cc79779cd82d77888a88ae2fa424d93b445ad4f6c02bfc18335b70/libclang-18.1.1-py2.py3-none-win_arm64.whl", hash = "sha256:3f0e1f49f04d3cd198985fea0511576b0aee16f9ff0e0f0cad7f9c57ec3c20e8", size = 22361112, upload-time = "2024-03-17T16:42:59.565Z" },
 ]
-
-[[package]]
-name = "longhand-mlx"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "datasets" },
-    { name = "mlx" },
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "pyarrow" },
-    { name = "scipy" },
-    { name = "svgwrite" },
-    { name = "tqdm" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "tensorflow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "datasets", specifier = ">=4.8.5" },
-    { name = "mlx", specifier = ">=0.31.2" },
-    { name = "numpy", specifier = ">=2.4.4" },
-    { name = "pillow", specifier = ">=12.2.0" },
-    { name = "pyarrow", specifier = ">=24.0.0" },
-    { name = "scipy", specifier = ">=1.17.1" },
-    { name = "svgwrite", specifier = ">=1.4.3" },
-    { name = "tqdm", specifier = ">=4.67.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "tensorflow", specifier = ">=2.21.0" }]
 
 [[package]]
 name = "markdown-it-py"

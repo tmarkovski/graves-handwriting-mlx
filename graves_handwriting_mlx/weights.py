@@ -15,6 +15,6 @@ import numpy as np
 
 def load_weights(path: Path | None = None) -> dict[str, mx.array]:
     if path is None:
-        path = Path(str(files("longhand_mlx") / "data" / "weights.npz"))
+        path = Path(str(files("graves_handwriting_mlx") / "data" / "weights.npz"))
     raw = np.load(path)
     return {key: mx.array(raw[key]) for key in raw.files}

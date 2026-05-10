@@ -19,8 +19,8 @@ graphite.svg
 fragment_state.npz
 dataset_handwritten/
 dataset_handwritten*.parquet
-longhand-synthetic*.parquet
+graves-synthetic*.parquet
 preview_check.png
 
-# Redundant copy at repo root — the canonical weights live in longhand_mlx/data/
+# Redundant copy at repo root — the canonical weights live in graves_handwriting_mlx/data/
 /weights.npz

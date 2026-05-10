@@ -19,7 +19,7 @@ STEPS_PER_CHARACTER = 40
 
 def load_style(style_id: int) -> tuple[np.ndarray, str]:
     """Return `(stroke_array, primer_text)` for one of the bundled styles."""
-    styles_dir = files("longhand_mlx") / "data" / "styles"
+    styles_dir = files("graves_handwriting_mlx") / "data" / "styles"
     strokes = np.load(str(styles_dir / f"style-{style_id}-strokes.npy"))
     primer_chars = np.load(str(styles_dir / f"style-{style_id}-chars.npy")).tobytes().decode("utf-8")
     return strokes.astype(np.float32), primer_chars
@@ -46,7 +46,7 @@ class Hand:
     ) -> list[np.ndarray]:
         """Generate handwriting for `lines`. Returns one `[T, 3]` array of
         `(Δx, Δy, eos)` stroke offsets per line. Pass the result to
-        `longhand_mlx.draw.render_svg` if you want SVG markup."""
+        `graves_handwriting_mlx.draw.render_svg` if you want SVG markup."""
         self._validate(lines)
         return self._sample(lines, biases=biases, styles=styles, seed=seed)
 

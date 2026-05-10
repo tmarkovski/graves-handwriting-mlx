@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from longhand_mlx import Hand
-from longhand_mlx.draw import render_svg
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.draw import render_svg
 
 hand = Hand()
 stream = hand.stream("hello world", bias=0.75, seed=1)

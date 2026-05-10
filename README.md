@@ -1,4 +1,4 @@
-# longhand-mlx
+# graves-handwriting-mlx
 
 Graves-style handwriting synthesis, ported to Apple MLX.
 
@@ -18,14 +18,14 @@ uv sync
 ```
 
 That's it. The trained weights (~14 MB) and 13 style examples ship inside the
-package at `longhand_mlx/data/`.
+package at `graves_handwriting_mlx/data/`.
 
 ## Quick start
 
 ```python
 from pathlib import Path
-from longhand_mlx import Hand
-from longhand_mlx.draw import render_svg
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.draw import render_svg
 
 hand = Hand()
 strokes = hand.write(["the quick brown fox jumps over the lazy dog"])
@@ -50,7 +50,7 @@ Each row of the returned array is one timestep of the writing pen:
 
 The values are *offsets*, not absolute coordinates. To get the path the pen
 actually traces, cumulatively sum the first two columns
-(`longhand_mlx.draw.offsets_to_coords` does this). Each "stroke" in the
+(`graves_handwriting_mlx.draw.offsets_to_coords` does this). Each "stroke" in the
 visual sense — a continuous pen-down segment — is a run of rows separated
 by `eos == 1.0`. The model emits its end-of-text signal by raising `eos` on
 its final stroke; trailing all-zero rows (already trimmed by `Hand.write`)
@@ -193,15 +193,15 @@ signal (attention reached the last character + pen-up). Subsequent
 ## The lower-level Generator
 
 `Hand.write` and `HandStream` are both thin facades over a single primitive,
-`longhand_mlx.generator.Generator`. If you need to drive batched generation
+`graves_handwriting_mlx.generator.Generator`. If you need to drive batched generation
 yourself — e.g. to render thousands of lines in parallel, or with custom
 stop conditions — instantiate it directly:
 
 ```python
 import numpy as np
-from longhand_mlx import Hand
-from longhand_mlx.generator import Generator
-from longhand_mlx.alphabet import encode_ascii
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.generator import Generator
+from graves_handwriting_mlx.alphabet import encode_ascii
 
 hand = Hand()
 
@@ -250,7 +250,7 @@ call rather than looping in Python.
 ## Layout
 
 ```
-longhand_mlx/
+graves_handwriting_mlx/
   modules.py      LSTMCell, GaussianWindowAttention, MixtureDensityHead
   model.py        HandwritingCell — composes the three modules
   generator.py    Generator — the basic autoregressive primitive

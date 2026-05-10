@@ -14,9 +14,9 @@ import mlx.core as mx
 import numpy as np
 import svgwrite
 
-from longhand_mlx import Hand
-from longhand_mlx.alphabet import encode_ascii
-from longhand_mlx.draw import _align, _denoise, offsets_to_coords
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.alphabet import encode_ascii
+from graves_handwriting_mlx.draw import _align, _denoise, offsets_to_coords
 
 TEXT = "Hello world, I'm Graphite!"
 FRAGMENTS = ["Hello", "world,", "I'm", "Graphite!"]

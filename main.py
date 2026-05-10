@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from longhand_mlx import Hand
-from longhand_mlx.draw import render_svg
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.draw import render_svg
 
 
 def main() -> None:

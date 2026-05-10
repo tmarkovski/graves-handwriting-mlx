@@ -1,5 +1,5 @@
 [project]
-name = "longhand-mlx"
+name = "graves-handwriting-mlx"
 version = "0.1.0"
 description = "Graves-style handwriting synthesis on Apple MLX."
 readme = "README.md"
@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["longhand_mlx"]
+packages = ["graves_handwriting_mlx"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"longhand_mlx/data" = "longhand_mlx/data"
+"graves_handwriting_mlx/data" = "graves_handwriting_mlx/data"

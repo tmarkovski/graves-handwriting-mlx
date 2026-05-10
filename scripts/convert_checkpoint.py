@@ -1,9 +1,9 @@
-"""One-shot: convert the upstream TF1 checkpoint into longhand_mlx/data/weights.npz.
+"""One-shot: convert the upstream TF1 checkpoint into graves_handwriting_mlx/data/weights.npz.
 
 Usage:
     uv run python scripts/convert_checkpoint.py \
         --checkpoint handwriting-synthesis/checkpoints/model-17900 \
-        --output longhand_mlx/data/weights.npz
+        --output graves_handwriting_mlx/data/weights.npz
 
 TF1 `tf.contrib.rnn.LSTMCell` adds `forget_bias=1.0` to the forget-gate
 slice of the LSTM bias at runtime; we bake that into the saved bias here so

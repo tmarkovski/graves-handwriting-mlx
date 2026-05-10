@@ -49,11 +49,11 @@ from datasets import DatasetInfo, Features, Image as HFImage, Sequence, Value, l
 from PIL import Image, ImageDraw
 from tqdm import tqdm
 
-from longhand_mlx import Hand
-from longhand_mlx.alphabet import alphabet, encode_ascii
-from longhand_mlx.draw import _align, _denoise, offsets_to_coords
-from longhand_mlx.hand import load_style
-from longhand_mlx.model import ALPHABET_SIZE
+from graves_handwriting_mlx import Hand
+from graves_handwriting_mlx.alphabet import alphabet, encode_ascii
+from graves_handwriting_mlx.draw import _align, _denoise, offsets_to_coords
+from graves_handwriting_mlx.hand import load_style
+from graves_handwriting_mlx.model import ALPHABET_SIZE
 
 DATASET_NAME = "Roman1111111/claude-sonnet-4.6-100000X-filtered"
 NUM_STYLES = 13
