@@ -17,6 +17,7 @@ out_*.svg
 demo.svg
 graphite.svg
 fragment_state.npz
+dataset_handwritten/
 
 # Redundant copy at repo root — the canonical weights live in longhand_mlx/data/
 /weights.npz
