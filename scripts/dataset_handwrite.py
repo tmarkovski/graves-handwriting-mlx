@@ -358,7 +358,12 @@ def flush_batch(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("dataset_handwritten.parquet"))
-    parser.add_argument("--samples", type=int, default=10, help="number of dataset samples to process")
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=100,
+        help="target number of rows in the output parquet (one row per rendered line)",
+    )
     parser.add_argument("--bias", type=float, default=0.9)
     parser.add_argument("--batch", type=int, default=64, help="lines rendered per GPU batch")
     parser.add_argument("--seed", type=int, default=0)
@@ -377,11 +382,17 @@ def main() -> None:
 
     pending: list[LineRequest] = []
 
-    progress = tqdm(total=args.samples, desc="samples", unit="sample")
-    for sample_index, sample in enumerate(dataset):
-        if sample_index >= args.samples:
+    progress = tqdm(total=args.samples, desc="rows", unit="row")
+    samples_consumed = 0
+    target_reached = False
+
+    def update_postfix() -> None:
+        progress.set_postfix(pending=len(pending), samples=samples_consumed, refresh=False)
+
+    for sample in dataset:
+        if target_reached:
             break
-        progress.update(1)
+        samples_consumed += 1
 
         for message in sample["messages"]:
             role = message.get("role")
@@ -398,23 +409,38 @@ def main() -> None:
                 continue
             for line in lines:
                 pending.append(LineRequest(line=line, style=rng.randrange(NUM_STYLES)))
-                if len(pending) >= args.batch:
+                update_postfix()
+                # Flush when the buffer is full OR when we have enough to hit
+                # the target (avoid a giant final batch overshoot).
+                remaining = args.samples - rendered
+                flush_at = min(args.batch, remaining)
+                if len(pending) >= flush_at:
                     new_rendered, new_empty = flush_batch(
                         hand, pending, bias=args.bias, batch_seed=rng.randrange(10**9), writer=writer
                     )
                     rendered += new_rendered
                     skipped_empty += new_empty
+                    progress.update(new_rendered)
                     pending = []
+                    update_postfix()
+                    if rendered >= args.samples:
+                        target_reached = True
+                        break
+            if target_reached:
+                break
+        update_postfix()
+        progress.refresh()
 
-    progress.close()
-
-    if pending:
+    # If the dataset ran dry before we hit the target, flush whatever's left.
+    if pending and rendered < args.samples:
         new_rendered, new_empty = flush_batch(
-            hand, pending, bias=args.bias, batch_seed=rng.randrange(10**9), writer=writer
+            hand, pending[: args.samples - rendered], bias=args.bias, batch_seed=rng.randrange(10**9), writer=writer
         )
         rendered += new_rendered
         skipped_empty += new_empty
+        progress.update(new_rendered)
 
+    progress.close()
     writer.close()
 
     converted = Dataset.from_parquet(str(args.output))
