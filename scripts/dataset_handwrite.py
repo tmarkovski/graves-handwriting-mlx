@@ -271,10 +271,14 @@ def generate_batch(
     return results
 
 
+STROKE_SCALE = 2.0
+
+
 def line_to_absolute_coords(strokes_offsets: np.ndarray) -> np.ndarray | None:
     """Cumsum offsets to absolute coords, denoise, deslant, flip Y for screen
-    convention, and shift so the very first point sits at (0, 0). Returns
-    `[N, 3]` `(x, y, eos)` — no centering, no fixed canvas."""
+    convention, shift so the very first point sits at (0, 0), and apply the
+    same 2x scale used by graphite's reference script. Returns `[N, 3]`
+    `(x, y, eos)` — no centering, no fixed canvas."""
     if len(strokes_offsets) == 0:
         return None
     coords = offsets_to_coords(strokes_offsets.astype(np.float64))
@@ -283,6 +287,7 @@ def line_to_absolute_coords(strokes_offsets: np.ndarray) -> np.ndarray | None:
     coords[:, 1] *= -1
     coords[:, 0] -= coords[0, 0]
     coords[:, 1] -= coords[0, 1]
+    coords[:, :2] *= STROKE_SCALE
     return coords
 
 
