@@ -382,18 +382,18 @@ def main() -> None:
 
     pending: list[LineRequest] = []
 
+    # Bar tracks lines committed toward the target rather than lines actually
+    # written to parquet. Each accepted line is incremented immediately so the
+    # bar moves smoothly during the accumulation phase between flushes (which
+    # is most of the wall time when --batch is large). On the rare occasion
+    # that a flushed line produces no strokes, we step the bar back to keep
+    # the final count honest.
     progress = tqdm(total=args.samples, desc="rows", unit="row")
-    samples_consumed = 0
     target_reached = False
-
-    def update_postfix() -> None:
-        progress.set_postfix(pending=len(pending), samples=samples_consumed, refresh=False)
 
     for sample in dataset:
         if target_reached:
             break
-        samples_consumed += 1
-
         for message in sample["messages"]:
             role = message.get("role")
             if role not in ROLES_TO_RENDER:
@@ -409,27 +409,24 @@ def main() -> None:
                 continue
             for line in lines:
                 pending.append(LineRequest(line=line, style=rng.randrange(NUM_STYLES)))
-                update_postfix()
-                # Flush when the buffer is full OR when we have enough to hit
-                # the target (avoid a giant final batch overshoot).
-                remaining = args.samples - rendered
-                flush_at = min(args.batch, remaining)
+                progress.update(1)
+                # Cap the buffer at whatever is still needed so we don't
+                # overshoot when --batch > remaining target.
+                flush_at = min(args.batch, args.samples - rendered)
                 if len(pending) >= flush_at:
                     new_rendered, new_empty = flush_batch(
                         hand, pending, bias=args.bias, batch_seed=rng.randrange(10**9), writer=writer
                     )
                     rendered += new_rendered
                     skipped_empty += new_empty
-                    progress.update(new_rendered)
+                    if new_empty:
+                        progress.update(-new_empty)
                     pending = []
-                    update_postfix()
                     if rendered >= args.samples:
                         target_reached = True
                         break
             if target_reached:
                 break
-        update_postfix()
-        progress.refresh()
 
     # If the dataset ran dry before we hit the target, flush whatever's left.
     if pending and rendered < args.samples:
