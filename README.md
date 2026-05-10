@@ -4,9 +4,12 @@ Graves-style handwriting synthesis, ported to Apple MLX.
 
 A clean reimplementation of the inference path from
 [sjvasquez/handwriting-synthesis](https://github.com/sjvasquez/handwriting-synthesis):
-3-layer LSTM with a Gaussian-window attention over characters and a mixture
-density head over pen offsets. Pre-converted weights and style examples are
-bundled with the package — no TensorFlow at runtime.
+a 3-layer LSTM driven by a soft-monotonic Gaussian-window attention over the
+input text, with a 20-component mixture density head producing the next pen
+offset and pen-up probability. Pre-converted weights and style examples are
+bundled with the package, so there is no TensorFlow dependency at runtime.
+
+---
 
 ## Install
 
@@ -14,34 +17,196 @@ bundled with the package — no TensorFlow at runtime.
 uv sync
 ```
 
-## Use
+That's it. The trained weights (~14 MB) and 13 style examples ship inside the
+package at `longhand_mlx/data/`.
+
+## Quick start
 
 ```python
 from longhand_mlx import Hand
 
 hand = Hand()
+hand.write("out.svg", ["the quick brown fox jumps over the lazy dog"])
+```
+
+Open `out.svg` and you should see a line of cursive handwriting. The first
+call constructs the model and compiles the per-step function (~0.3 s warmup);
+subsequent calls reuse it.
+
+## Lines, biases, styles
+
+`Hand.write` takes a list of lines and renders them stacked in one SVG. Most
+parameters are per-line lists — pass one entry per line. The model is
+deterministic given a `seed`; vary the seed for different renderings of the
+same text.
+
+```python
 hand.write(
-    filename="out.svg",
-    lines=["the quick brown fox", "jumps over the lazy dog"],
-    biases=[0.75, 0.75],   # higher = neater, lower = wilder
-    styles=[9, 9],          # optional; one of the bundled styles
+    "letter.svg",
+    lines=[
+        "Dear Anya,",
+        "I hope this finds you well.",
+        "Yours, Ilya",
+    ],
+    biases=[0.75, 0.75, 0.5],
+    styles=[9, 9, 9],
+    stroke_colors=["black", "black", "blue"],
+    stroke_widths=[2, 2, 2],
+    seed=42,
 )
 ```
 
-For incremental, fragmentable output (e.g. animation, progressive rendering):
+### Bias — neatness vs. wildness
+
+Each line takes a `bias` between `0.0` and roughly `1.5`. It applies the
+Graves "sharpening trick": at each timestep it widens the highest-probability
+mixture component and narrows its standard deviation. In practice:
+
+| bias  | result                                                |
+|------:|-------------------------------------------------------|
+|  0.0  | maximally diverse — illegible at the extreme          |
+|  0.5  | natural-looking, occasionally messy                   |
+|  0.75 | a good default — neat handwriting (used in the demos) |
+|  1.0+ | very neat, almost mechanical; loses character         |
+
+Bias is a per-line parameter, so different lines can have different
+neatness. Defaults to `0.5` if omitted.
+
+### Styles — handwriting that looks like a real person's
+
+The model can be primed with a short stroke sequence written in some target
+person's hand. After priming, the LSTM/attention state is conditioned on
+that style, and continuing the generation produces handwriting in the same
+visual idiom — same slant, loop shape, letter spacing, baseline drift.
+
+13 style examples are bundled. Each is a real handwriting sample that was
+recorded once with the priming text below:
+
+| style | primer text                                     |
+|------:|-------------------------------------------------|
+|     0 | thought that vengeance                          |
+|     1 | So says the Times                               |
+|     2 | House was crowded.                              |
+|     3 | A stronger finish                               |
+|     4 | now eased away                                  |
+|     5 | Aurelius Antonius about A.D                     |
+|     6 | Byron, had said                                 |
+|     7 | I do not know of                                |
+|     8 | Holmbridge Vicarage,                            |
+|     9 | two-twenty carried, for him,                    |
+|    10 | "Just you keep thinking                         |
+|    11 | Royal family so often seems to find             |
+|    12 | tomorrow. How selfish of me. It                 |
+
+Pick by integer ID; the primer text itself isn't rendered, only its visual
+style is inherited. If you omit `styles=`, the model writes in a generic
+"average" hand.
 
 ```python
-stream = hand.stream("hello world", bias=0.75)
-first_half = stream.advance(until_char=5)   # stop just past 'hello '
-second_half = stream.advance()               # finish
+# Same text, three different hands
+for style_id in [3, 7, 12]:
+    hand.write(
+        f"hello_{style_id}.svg",
+        ["hello world"],
+        biases=[0.75],
+        styles=[style_id],
+    )
 ```
 
-The stream object holds the live LSTM/attention state — call `advance` again
-later to keep going. Run `uv run python main.py` for the multi-line demo.
+### Allowed characters
+
+The vocabulary is 73 characters: ASCII letters (note: no `Q`, `X`, `Z`
+uppercase), digits, and a small punctuation set
+(`` ' " # ( ) , - . : ; ? ! ``). Any other character — emoji, accented
+letters, tabs — will raise `ValueError`. Each line is capped at 75
+characters.
+
+## Streaming generation
+
+Sometimes you want to generate one piece of a line at a time — for animating
+the writing, paginating output, or keeping latency low while you display
+progress. The `HandStream` API holds the model state alive between calls:
+
+```python
+stream = hand.stream("hello world", bias=0.75, style=9, seed=0)
+
+first  = stream.advance(until_char=5)  # stop after 'hello '
+second = stream.advance()              # finish
+all_strokes = np.concatenate([first, second], axis=0)
+```
+
+`stream.advance(until_char=N)` runs the model until its attention crosses
+character index `N` (so it'll have just finished writing the N-th character).
+`stream.advance()` with no argument runs to natural end-of-text. The state
+lives on the `stream` object; calling `advance` again resumes seamlessly.
+
+Each `advance` returns a NumPy array of shape `[num_strokes, 3]` containing
+only the strokes produced by that call. Concatenating them is equivalent to
+having generated the whole thing in one shot — same RNG path, same output.
+
+A few useful shapes:
+
+```python
+# Generate one character at a time, e.g. for an animation frame
+stream = hand.stream("dear anya", bias=0.75, style=9)
+for character_index in range(1, len("dear anya") + 1):
+    fragment = stream.advance(until_char=character_index)
+    # render fragment...
+
+# Cap the work per call to keep UI responsive
+stream = hand.stream("a long sentence...", bias=0.75)
+while not stream.done:
+    chunk = stream.advance(max_steps=64)
+    # process chunk...
+```
+
+The `done` property is `True` once the model has emitted its end-of-text
+signal (attention reached the last character + pen-up). Subsequent
+`advance` calls will return an empty array.
+
+## The lower-level Generator
+
+`Hand.write` and `HandStream` are both thin facades over a single primitive,
+`longhand_mlx.generator.Generator`. If you need to drive batched generation
+yourself — e.g. to render thousands of lines in parallel, or with custom
+stop conditions — instantiate it directly:
+
+```python
+import numpy as np
+from longhand_mlx import Hand
+from longhand_mlx.generator import Generator
+from longhand_mlx.alphabet import encode_ascii
+
+hand = Hand()
+
+batch = ["one", "two", "three"]
+chars = np.zeros((3, 120), dtype=np.int32)
+char_lengths = np.zeros(3, dtype=np.int32)
+for index, line in enumerate(batch):
+    encoded = encode_ascii(line)
+    chars[index, : len(encoded)] = encoded
+    char_lengths[index] = len(encoded)
+
+generator = Generator(
+    hand.cell,
+    chars=chars,
+    char_lengths=char_lengths,
+    biases=np.full(3, 0.75, dtype=np.float32),
+    seed=0,
+)
+strokes = generator.advance(max_steps=200)  # [3, T, 3]
+```
+
+`advance(max_steps, stop_when=None)` runs up to `max_steps` cell steps and
+returns the produced strokes. The optional `stop_when(phi, last_stroke)`
+callback receives the per-batch attention distribution and last sampled
+stroke as NumPy arrays and returns a `[batch]` boolean mask; the loop exits
+early when every still-active sample has signaled stop. Default termination
+(attention reached the last character + pen-up) is always active.
 
 ## Performance
 
-Stroke-steps per second on an M1 Pro (14-core GPU):
+Stroke-steps per second on an M1 Pro (14-core GPU), single warm call:
 
 | batch |  steps/s |
 |------:|---------:|
@@ -50,23 +215,34 @@ Stroke-steps per second on an M1 Pro (14-core GPU):
 |   256 |  105.8 k |
 |  4096 |  161.4 k |
 
-Throughput saturates around 160 k steps/s — roughly 4.8 TFLOPS sustained
-on a ~5 TFLOPS GPU, near the matmul ceiling.
+Throughput saturates around 160 k steps/s — roughly 4.8 TFLOPS sustained on
+a ~5 TFLOPS GPU, near the matmul ceiling. Single-line latency (~0.5 s for 30
+characters) is bound by per-step Python/dispatch overhead, not compute, so
+the way to go faster is to batch independent lines into one `Hand.write`
+call rather than looping in Python.
 
 ## Layout
 
 ```
 longhand_mlx/
-  modules.py     LSTMCell, GaussianWindowAttention, MixtureDensityHead
-  model.py       HandwritingCell — composes the three modules
-  generator.py   Generator — the basic autoregressive primitive
-  hand.py        Hand — multi-line one-shot facade
-  stream.py     HandStream — single-line fragmentable facade
-  draw.py        SVG output (denoise, deslant, layout)
-  weights.py     load_weights() — finds the bundled npz
-  alphabet.py    character vocabulary
-  data/          bundled weights.npz + style examples
+  modules.py      LSTMCell, GaussianWindowAttention, MixtureDensityHead
+  model.py        HandwritingCell — composes the three modules
+  generator.py    Generator — the basic autoregressive primitive
+  hand.py         Hand — multi-line one-shot facade
+  stream.py       HandStream — single-line fragmentable facade
+  draw.py         SVG output (denoise, deslant, page layout)
+  weights.py      load_weights() — finds the bundled npz
+  alphabet.py    character vocabulary + encoding
+  data/           bundled weights.npz + style examples
 scripts/
   convert_checkpoint.py   one-shot TF -> MLX (only file using TensorFlow)
   fragment_demo.py        in-process two-fragment "hello world" demo
 ```
+
+## Credit
+
+Trained weights and style examples come from
+[sjvasquez/handwriting-synthesis](https://github.com/sjvasquez/handwriting-synthesis),
+which in turn implements
+[Graves 2013, Generating Sequences With Recurrent Neural Networks](https://arxiv.org/abs/1308.0850).
+This repository is just an MLX inference port of that work.
