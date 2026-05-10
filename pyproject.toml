@@ -8,8 +8,11 @@ dependencies = [
     "datasets>=4.8.5",
     "mlx>=0.31.2",
     "numpy>=2.4.4",
+    "pillow>=12.2.0",
+    "pyarrow>=24.0.0",
     "scipy>=1.17.1",
     "svgwrite>=1.4.3",
+    "tqdm>=4.67.3",
 ]
 
 [dependency-groups]
