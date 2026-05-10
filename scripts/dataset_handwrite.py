@@ -8,9 +8,10 @@ Schema matches `graphite/scripts/convert_jsonl_to_parquet.py`:
     preview : struct{bytes: binary, path: string}    -> cast to HF Image
     file    : string                                  -> sha256(text)
 
-Each row is one rendered message. The outer `strokes` list groups by
-**word** — every space-separated token in the text gets its own group,
-across all lines. The inner list is the individual pen-down strokes
+**One row per line.** Each user/assistant message is word-wrapped at
+75 characters and every wrapped line is emitted as its own parquet row.
+The outer `strokes` list groups by **word** — every space-separated token
+in the line gets its own group; the inner list is the pen-down strokes
 within that word. Words are identified by tracking which character the
 attention's argmax was on at each step.
 
@@ -245,37 +246,28 @@ def render_preview_png(word_groups: list[list[dict]], canvas_height: int) -> byt
         return png_buffer.getvalue()
 
 
-def render_message(
-    hand: Hand, lines: list[str], style: int, bias: float, base_seed: int
+def render_line(
+    hand: Hand, line: str, style: int, bias: float, seed: int
 ) -> tuple[list[list[dict]], int] | None:
-    """Render every line of a message, returning the flattened list of word
-    groups for the whole message, plus the canvas height in pixels."""
-    all_word_groups: list[list[dict]] = []
-    for line_index, line in enumerate(lines):
-        strokes, attended, primer_offset = generate_with_attention(
-            hand, line, style=style, bias=bias, seed=base_seed + line_index
-        )
-        if len(strokes) == 0:
-            continue
-        # Map each step's attended char index (in primer + " " + line) into a
-        # word index over `line` only. Steps still attending to the primer are
-        # snapped to word 0, the line's first word.
-        attended_in_line = np.maximum(attended - primer_offset, 0)
-        attended_in_line = np.minimum(attended_in_line, len(line) - 1)
-        word_ids = word_id_for_each_char(line)
-        word_assignment = word_ids[attended_in_line]
-
-        y_offset = (line_index + 1) * LINE_HEIGHT - 3 * LINE_HEIGHT / 4
-        coords = line_to_absolute_coords(strokes, y_offset)
-        if coords is None or len(coords) != len(word_assignment):
-            # `_denoise` preserves total length; this guard catches edge cases.
-            continue
-        all_word_groups.extend(coords_and_word_assignment_to_groups(coords, word_assignment))
-
-    if not all_word_groups:
+    """Render one line, returning its word groups and the canvas height."""
+    strokes, attended, primer_offset = generate_with_attention(
+        hand, line, style=style, bias=bias, seed=seed
+    )
+    if len(strokes) == 0:
         return None
-    canvas_height = (len(lines) + 1) * LINE_HEIGHT
-    return all_word_groups, canvas_height
+
+    attended_in_line = np.maximum(attended - primer_offset, 0)
+    attended_in_line = np.minimum(attended_in_line, len(line) - 1)
+    word_ids = word_id_for_each_char(line)
+    word_assignment = word_ids[attended_in_line]
+
+    coords = line_to_absolute_coords(strokes, y_offset=LINE_HEIGHT - 3 * LINE_HEIGHT / 4)
+    if coords is None or len(coords) != len(word_assignment):
+        return None
+    word_groups = coords_and_word_assignment_to_groups(coords, word_assignment)
+    if not word_groups:
+        return None
+    return word_groups, LINE_HEIGHT * 2
 
 
 def main() -> None:
@@ -321,27 +313,28 @@ def main() -> None:
                 skipped_empty += 1
                 continue
 
-            result = render_message(
-                hand,
-                lines,
-                style=styles_for_roles[role],
-                bias=args.bias,
-                base_seed=sample_rng.randrange(10**9),
-            )
-            if result is None:
-                skipped_empty += 1
-                continue
-            word_groups, canvas_height = result
-            preview_bytes = render_preview_png(word_groups, canvas_height)
+            for line in lines:
+                result = render_line(
+                    hand,
+                    line,
+                    style=styles_for_roles[role],
+                    bias=args.bias,
+                    seed=sample_rng.randrange(10**9),
+                )
+                if result is None:
+                    skipped_empty += 1
+                    continue
+                word_groups, canvas_height = result
+                preview_bytes = render_preview_png(word_groups, canvas_height)
 
-            row = {
-                "strokes": [word_groups],
-                "text": [content],
-                "preview": [{"bytes": preview_bytes, "path": None}],
-                "file": [hashlib.sha256(content.encode()).hexdigest()],
-            }
-            writer.write_table(pa.table(row, schema=SCHEMA))
-            rendered += 1
+                row = {
+                    "strokes": [word_groups],
+                    "text": [line],
+                    "preview": [{"bytes": preview_bytes, "path": None}],
+                    "file": [hashlib.sha256(line.encode()).hexdigest()],
+                }
+                writer.write_table(pa.table(row, schema=SCHEMA))
+                rendered += 1
 
     progress.close()
     writer.close()
