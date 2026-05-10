@@ -17,7 +17,8 @@ do it here so the script stays streaming-only and never holds the full
 dataset in memory.
 
 **One row per line.** Each user/assistant message is word-wrapped at
-75 characters and every wrapped line is emitted as its own parquet row.
+6 words / 75 characters (whichever hits first) and every wrapped line
+is emitted as its own parquet row.
 The outer `strokes` list groups by **word** — every space-separated token
 in the line gets its own group; the inner list is the pen-down strokes
 within that word. Words are identified by tracking which character the
@@ -56,7 +57,8 @@ from longhand_mlx.model import ALPHABET_SIZE
 
 DATASET_NAME = "Roman1111111/claude-sonnet-4.6-100000X-filtered"
 NUM_STYLES = 13
-LINE_LIMIT = 75
+LINE_CHAR_LIMIT = 75
+LINE_WORD_LIMIT = 6
 ROLES_TO_RENDER = {"user", "assistant"}
 VALID_CHARS = set(alphabet)
 
@@ -112,24 +114,30 @@ def text_is_renderable(text: str) -> bool:
     return all(character in VALID_CHARS for character in text)
 
 
-def split_into_lines(text: str, limit: int = LINE_LIMIT) -> list[str]:
+def split_into_lines(
+    text: str,
+    char_limit: int = LINE_CHAR_LIMIT,
+    word_limit: int = LINE_WORD_LIMIT,
+) -> list[str]:
+    """Greedy word-wrap with both a word-count and a character-count cap.
+    Source newlines also force a break."""
     lines: list[str] = []
     for paragraph in text.splitlines():
-        paragraph = paragraph.strip()
-        if not paragraph:
-            continue
-        current = ""
+        chunk: list[str] = []
+        chunk_chars = 0
         for word in paragraph.split():
-            if len(word) > limit:
-                word = word[:limit]
-            candidate = word if not current else f"{current} {word}"
-            if len(candidate) <= limit:
-                current = candidate
+            if len(word) > char_limit:
+                word = word[:char_limit]
+            projected = chunk_chars + len(word) + (1 if chunk else 0)
+            if chunk and (len(chunk) >= word_limit or projected > char_limit):
+                lines.append(" ".join(chunk))
+                chunk = [word]
+                chunk_chars = len(word)
             else:
-                lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
+                chunk.append(word)
+                chunk_chars = projected
+        if chunk:
+            lines.append(" ".join(chunk))
     return lines
 
 
