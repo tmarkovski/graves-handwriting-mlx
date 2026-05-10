@@ -329,6 +329,79 @@ def coords_and_word_assignment_to_groups(
     return groups
 
 
+DOTTED_CHARS = set("ij?!;:.")
+TINY_STROKE_DIAMETER = 3.0
+
+
+def stroke_diameter(stroke: dict) -> float:
+    """Largest extent of the stroke's bounding box. A single point counts as 0."""
+    points = stroke["points"]
+    if len(points) <= 1:
+        return 0.0
+    xs = [point["x"] for point in points]
+    ys = [point["y"] for point in points]
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def trim_tiny_extremes(word_groups: list[list[dict]], text: str) -> list[list[dict]]:
+    """Drop the very first or very last stroke if it's a tiny artifact dot
+    (under `TINY_STROKE_DIAMETER`), unless the text begins/ends with a
+    character that legitimately has a dot (i, j, !, ?, :, ;, .).
+
+    After trimming, re-anchor so the first surviving point sits at (0, 0).
+    """
+    if not word_groups:
+        return word_groups
+    flat: list[tuple[int, int]] = [
+        (word_index, stroke_index)
+        for word_index, group in enumerate(word_groups)
+        for stroke_index in range(len(group))
+    ]
+    if not flat:
+        return word_groups
+
+    stripped = text.strip()
+    text_first = stripped[:1].lower() if stripped else ""
+    text_last = stripped[-1:].lower() if stripped else ""
+
+    drop_indices: set[int] = set()
+    first_word_index, first_stroke_index = flat[0]
+    if (
+        text_first not in DOTTED_CHARS
+        and stroke_diameter(word_groups[first_word_index][first_stroke_index]) < TINY_STROKE_DIAMETER
+    ):
+        drop_indices.add(0)
+    if len(flat) > 1:
+        last_word_index, last_stroke_index = flat[-1]
+        if (
+            text_last not in DOTTED_CHARS
+            and stroke_diameter(word_groups[last_word_index][last_stroke_index]) < TINY_STROKE_DIAMETER
+        ):
+            drop_indices.add(len(flat) - 1)
+
+    if not drop_indices:
+        return word_groups
+
+    new_groups: list[list[dict]] = [[] for _ in word_groups]
+    for index, (word_index, stroke_index) in enumerate(flat):
+        if index in drop_indices:
+            continue
+        new_groups[word_index].append(word_groups[word_index][stroke_index])
+    new_groups = [group for group in new_groups if group]
+
+    # Re-anchor so the first remaining point is at (0, 0).
+    if new_groups:
+        anchor = new_groups[0][0]["points"][0]
+        anchor_x, anchor_y = anchor["x"], anchor["y"]
+        if anchor_x or anchor_y:
+            for group in new_groups:
+                for stroke in group:
+                    for point in stroke["points"]:
+                        point["x"] -= anchor_x
+                        point["y"] -= anchor_y
+    return new_groups
+
+
 def render_preview_png(word_groups: list[list[dict]]) -> bytes:
     """Render a tight-bbox PNG of the line, just big enough to fit the strokes
     plus a small padding."""
@@ -383,6 +456,9 @@ def line_strokes_to_word_groups(
     if coords is None or len(coords) != len(word_assignment):
         return None
     word_groups = coords_and_word_assignment_to_groups(coords, word_assignment)
+    if not word_groups:
+        return None
+    word_groups = trim_tiny_extremes(word_groups, line)
     return word_groups or None
 
 
