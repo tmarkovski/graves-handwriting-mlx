@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# macOS
+.DS_Store
+
+# Generated outputs
+out_*.svg
+demo.svg
+fragment_state.npz
+
+# Redundant copy at repo root — the canonical weights live in longhand_mlx/data/
+/weights.npz
