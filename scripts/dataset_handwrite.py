@@ -56,7 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("dataset_handwritten"))
     parser.add_argument("--samples", type=int, default=10, help="number of dataset samples to process")
-    parser.add_argument("--bias", type=float, default=0.75)
+    parser.add_argument("--bias", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -73,6 +73,15 @@ def main() -> None:
     for sample_index, sample in enumerate(dataset):
         if sample_index >= args.samples:
             break
+        # One handwriting style per (sample, role) pair so every "user" turn in
+        # a conversation looks like the same person, and every "assistant"
+        # turn looks like a different consistent person.
+        sample_rng = random.Random(args.seed * 10**9 + sample_index)
+        styles_for_roles = {role: sample_rng.randrange(NUM_STYLES) for role in ROLES_TO_RENDER}
+        # Make sure user and assistant get visibly different hands.
+        while styles_for_roles["assistant"] == styles_for_roles["user"]:
+            styles_for_roles["assistant"] = sample_rng.randrange(NUM_STYLES)
+
         for message_index, message in enumerate(sample["messages"]):
             role = message.get("role")
             if role not in ROLES_TO_RENDER:
@@ -87,12 +96,12 @@ def main() -> None:
                 skipped_empty += 1
                 continue
 
-            style = rng.randrange(NUM_STYLES)
+            style = styles_for_roles[role]
             strokes = hand.write(
                 lines,
                 biases=[args.bias] * len(lines),
                 styles=[style] * len(lines),
-                seed=rng.randrange(10**9),
+                seed=sample_rng.randrange(10**9),
             )
             svg = render_svg(strokes, lines)
             file_path = args.output / f"sample{sample_index:04d}_msg{message_index:02d}_{role}_style{style:02d}.svg"
