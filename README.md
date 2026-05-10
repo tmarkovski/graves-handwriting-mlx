@@ -23,37 +23,61 @@ package at `longhand_mlx/data/`.
 ## Quick start
 
 ```python
+from pathlib import Path
 from longhand_mlx import Hand
+from longhand_mlx.draw import render_svg
 
 hand = Hand()
-hand.write("out.svg", ["the quick brown fox jumps over the lazy dog"])
+strokes = hand.write(["the quick brown fox jumps over the lazy dog"])
+Path("out.svg").write_text(render_svg(strokes, ["the quick brown fox..."]))
 ```
 
-Open `out.svg` and you should see a line of cursive handwriting. The first
-call constructs the model and compiles the per-step function (~0.3 s warmup);
-subsequent calls reuse it.
+`Hand.write` returns the model output as a list of NumPy arrays — one
+`[T, 3]` array of `(Δx, Δy, eos)` stroke offsets per line. What you do with
+those is up to you; rendering to SVG is one option among many. The first
+`write` call constructs the model and compiles the per-step function
+(~0.3 s warmup); subsequent calls reuse both.
+
+### The stroke format
+
+Each row of the returned array is one timestep of the writing pen:
+
+| column | meaning                                                 |
+|-------:|---------------------------------------------------------|
+|  `Δx`  | horizontal pen displacement since the previous timestep |
+|  `Δy`  | vertical pen displacement (positive = up)               |
+|  `eos` | `1.0` if the pen lifts after this stroke, else `0.0`    |
+
+The values are *offsets*, not absolute coordinates. To get the path the pen
+actually traces, cumulatively sum the first two columns
+(`longhand_mlx.draw.offsets_to_coords` does this). Each "stroke" in the
+visual sense — a continuous pen-down segment — is a run of rows separated
+by `eos == 1.0`. The model emits its end-of-text signal by raising `eos` on
+its final stroke; trailing all-zero rows (already trimmed by `Hand.write`)
+correspond to terminated samples in a batch.
+
+`render_svg` is one consumer of this format; you could just as easily plot
+it with matplotlib, animate it with `manim`, drive a pen plotter, or feed it
+to a downstream model. Keeping the pipeline open at the stroke level is
+intentional.
 
 ## Lines, biases, styles
 
-`Hand.write` takes a list of lines and renders them stacked in one SVG. Most
-parameters are per-line lists — pass one entry per line. The model is
+`Hand.write` takes a list of lines and produces one stroke array per line.
+Most parameters are per-line lists — pass one entry per line. The model is
 deterministic given a `seed`; vary the seed for different renderings of the
 same text.
 
 ```python
-hand.write(
-    "letter.svg",
-    lines=[
-        "Dear Anya,",
-        "I hope this finds you well.",
-        "Yours, Ilya",
-    ],
+lines = ["Dear Anya,", "I hope this finds you well.", "Yours, Ilya"]
+strokes = hand.write(
+    lines,
     biases=[0.75, 0.75, 0.5],
     styles=[9, 9, 9],
-    stroke_colors=["black", "black", "blue"],
-    stroke_widths=[2, 2, 2],
     seed=42,
 )
+svg = render_svg(strokes, lines, stroke_colors=["black", "black", "blue"])
+Path("letter.svg").write_text(svg)
 ```
 
 ### Bias — neatness vs. wildness
@@ -105,12 +129,8 @@ style is inherited. If you omit `styles=`, the model writes in a generic
 ```python
 # Same text, three different hands
 for style_id in [3, 7, 12]:
-    hand.write(
-        f"hello_{style_id}.svg",
-        ["hello world"],
-        biases=[0.75],
-        styles=[style_id],
-    )
+    strokes = hand.write(["hello world"], biases=[0.75], styles=[style_id])
+    Path(f"hello_{style_id}.svg").write_text(render_svg(strokes, ["hello world"]))
 ```
 
 ### Allowed characters

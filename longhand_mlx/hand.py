@@ -9,7 +9,6 @@ from typing import Sequence
 import numpy as np
 
 from .alphabet import MAX_CHAR_LEN, alphabet, encode_ascii
-from .draw import write_svg
 from .generator import Generator
 from .model import HandwritingCell
 from .weights import load_weights
@@ -39,18 +38,17 @@ class Hand:
 
     def write(
         self,
-        filename: str | Path,
         lines: Sequence[str],
         *,
         biases: Sequence[float] | None = None,
         styles: Sequence[int] | None = None,
-        stroke_colors: Sequence[str] | None = None,
-        stroke_widths: Sequence[float] | None = None,
         seed: int = 0,
-    ) -> None:
+    ) -> list[np.ndarray]:
+        """Generate handwriting for `lines`. Returns one `[T, 3]` array of
+        `(Δx, Δy, eos)` stroke offsets per line. Pass the result to
+        `longhand_mlx.draw.render_svg` if you want SVG markup."""
         self._validate(lines)
-        strokes = self._sample(lines, biases=biases, styles=styles, seed=seed)
-        write_svg(filename, strokes, lines, stroke_colors=stroke_colors, stroke_widths=stroke_widths)
+        return self._sample(lines, biases=biases, styles=styles, seed=seed)
 
     def _validate(self, lines: Sequence[str]) -> None:
         for line_index, line in enumerate(lines):
